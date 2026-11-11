@@ -1,0 +1,77 @@
+# 用例包输入示例
+# 由写用例套件产出、编排器合并后传入；本 Agent 只消费，不修改。
+
+package_id: PKG-ORDER-001
+scope:
+  endpoint: "POST /v1/orders"
+  resource: "order"
+  operation_id: "createOrder"
+source:
+  spec_version: "2026-11-01 / commit abc123"
+  business_rule_refs: ["BR-002", "BR-003", "BR-005"]
+language: go
+
+cases:
+  - case_id: TC-PA-ORD-001
+    title: 最小合法输入创建订单成功
+    type: parameter
+    priority: P0
+    preconditions:
+      auth: "Bearer ${BUYER_TOKEN}"
+      data:
+        - "SKU-001 库存 10，状态 ON_SALE"
+    request:
+      method: POST
+      path: /v1/orders
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer ${BUYER_TOKEN}"
+      body:
+        items:
+          - sku_id: "SKU-001"
+            quantity: 1
+    expected:
+      status: 201
+      assertions:
+        - "body.id 非空"
+        - "body.status == CREATED"
+        - "orders 表新增 1 行"
+        - "inventory[SKU-001] == 9"
+    side_effects:
+      db:
+        - "orders: +1"
+        - "inventory: -1"
+      downstream:
+        - "payment-mock: 0 calls"
+    cleanup:
+      - "DELETE /v1/orders/{id}（环境支持时）"
+
+  - case_id: TC-PA-ORD-004
+    title: quantity=0 时拒绝下单，且不产生订单/库存扣减
+    type: parameter
+    priority: P1
+    preconditions:
+      auth: "Bearer ${BUYER_TOKEN}"
+      data:
+        - "SKU-001 库存 10，状态 ON_SALE"
+    request:
+      method: POST
+      path: /v1/orders
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer ${BUYER_TOKEN}"
+      body:
+        items:
+          - sku_id: "SKU-001"
+            quantity: 0
+    expected:
+      status: 400
+      error_code: INVALID_QUANTITY
+      assertions:
+        - "body.code == INVALID_QUANTITY"
+        - "orders 表无新增"
+        - "inventory[SKU-001] == 10"
+    side_effects:
+      db: []
+      downstream: []
+    cleanup: []

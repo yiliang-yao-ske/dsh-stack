@@ -1,0 +1,26 @@
+# 测试文件骨架：生成时替换 {{...}} 占位符
+# 真实项目请复用 project_profile 中列出的 client / fixture / helper。
+
+import os
+
+import pytest
+
+
+@pytest.mark.integration
+def test_{{operation}}_{{case_id}}(client, buyer_token):
+    """用例 {{case_id}}：{{title}}"""
+    # 1. 前置数据：优先使用项目已有 fixture / factory
+    # order = create_order_fixture(...)
+
+    # 2. 发起请求：client 由 conftest.py 提供
+    # response = client.post("/v1/orders", json={...}, headers={...})
+
+    # 3. 断言：覆盖用例 expected 中的状态码、错误码、关键字段、副作用
+    # assert response.status_code == 201
+    # body = response.json()
+    # assert body["status"] == "CREATED"
+
+    # 4. 清理：fixture 负责清理，或使用 addfinalizer
+    # request.addfinalizer(lambda: delete_order(...))
+
+    assert os.getenv("TEST_BASE_URL"), "TEST_BASE_URL not set"

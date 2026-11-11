@@ -1,0 +1,192 @@
+schema_version: "1.0"
+run_id: RUN-20261111-134000
+task_id: TASK-EXEC-GO-ORDER-001
+stack: go
+status: partial
+
+scope:
+  requested_case_ids:
+    - TC-CT-ORD-001
+    - TC-PA-ORD-004
+    - TC-PA-ORD-009
+    - TC-PA-ORD-015
+  executed_case_ids:
+    - TC-CT-ORD-001
+    - TC-PA-ORD-004
+    - TC-PA-ORD-015
+  not_executed_case_ids:
+    - TC-PA-ORD-009
+  out_of_scope_case_ids: []
+  max_cases: 20
+
+environment:
+  name: test
+  base_url: "https://test-api.example.com"
+  go_version: "go1.22.5"
+  command: "go test ./test/api/... -tags=integration -race -count=1 -json"
+  started_at: "2026-11-11T13:40:00+08:00"
+  finished_at: "2026-11-11T13:42:10+08:00"
+
+summary:
+  total: 4
+  passed: 2
+  failed: 1
+  blocked: 1
+  skipped: 0
+  flaky: 0
+  duration_ms: 130000
+  pass_rate: "2/4"
+
+cases:
+  - case_id: TC-CT-ORD-001
+    title: 最小必填字段创建订单，响应符合 OrderResponse 契约
+    test_name: TestCreateOrder_TC_CT_ORD_001
+    status: passed
+    duration_ms: 850
+    attempts: 1
+    expected:
+      status: 201
+      schema: OrderResponse
+    actual:
+      status: 201
+      schema: OrderResponse
+    assertions:
+      - name: status
+        status: passed
+        expected: 201
+        actual: 201
+      - name: schema
+        status: passed
+        expected: OrderResponse
+        actual: OrderResponse
+    classification: null
+    classification_reason: null
+    severity: null
+    evidence:
+      command: "go test ./test/api/... -run TestCreateOrder_TC_CT_ORD_001 -json"
+      request: "POST /v1/orders body={items:[{sku_id:SKU-001,quantity:1}]}"
+      response: "201 {id:O-1001,status:CREATED}"
+      trace_id: trace-1001
+      logs: "artifacts/logs/TC-CT-ORD-001.log"
+    cleanup:
+      status: passed
+      details: "订单已取消"
+
+  - case_id: TC-PA-ORD-004
+    title: quantity=0 时拒绝下单，且不产生订单/库存扣减
+    test_name: TestCreateOrder_TC_PA_ORD_004
+    status: failed
+    duration_ms: 1200
+    attempts: 1
+    expected:
+      status: 400
+      error_code: INVALID_QUANTITY
+    actual:
+      status: 500
+      error_code: INTERNAL_ERROR
+    assertions:
+      - name: status
+        status: failed
+        expected: 400
+        actual: 500
+      - name: error_code
+        status: failed
+        expected: INVALID_QUANTITY
+        actual: INTERNAL_ERROR
+      - name: no_order_created
+        status: passed
+        expected: 0
+        actual: 0
+    classification: product_bug
+    classification_reason: "实际返回 500，违反契约的 400 期望；可稳定复现"
+    severity: critical
+    evidence:
+      command: "go test ./test/api/... -run TestCreateOrder_TC_PA_ORD_004 -json"
+      request: "POST /v1/orders body={items:[{sku_id:SKU-001,quantity:0}]}"
+      response: "500 {code:INTERNAL_ERROR,trace_id:trace-1002}"
+      trace_id: trace-1002
+      logs: "artifacts/logs/TC-PA-ORD-004.log"
+    cleanup:
+      status: passed
+      details: "无写入"
+
+  - case_id: TC-PA-ORD-009
+    title: 库存不足时拒绝下单
+    test_name: null
+    status: blocked
+    duration_ms: 0
+    attempts: 0
+    expected:
+      status: 409
+      error_code: OUT_OF_STOCK
+    actual: null
+    assertions: []
+    classification: env_issue
+    classification_reason: "测试环境库存服务不可用，无法构造库存不足场景"
+    severity: null
+    evidence:
+      command: null
+      request: null
+      response: null
+      trace_id: null
+      logs: "artifacts/logs/TC-PA-ORD-009.blocked.log"
+    cleanup:
+      status: skipped
+      details: "未执行"
+
+  - case_id: TC-PA-ORD-015
+    title: 已取消订单再次支付应被拒绝
+    test_name: TestPayOrder_TC_PA_ORD_015
+    status: passed
+    duration_ms: 950
+    attempts: 1
+    expected:
+      status: 409
+      error_code: ORDER_NOT_PAYABLE
+    actual:
+      status: 409
+      error_code: ORDER_NOT_PAYABLE
+    assertions:
+      - name: status
+        status: passed
+        expected: 409
+        actual: 409
+      - name: error_code
+        status: passed
+        expected: ORDER_NOT_PAYABLE
+        actual: ORDER_NOT_PAYABLE
+    classification: null
+    classification_reason: null
+    severity: null
+    evidence:
+      command: "go test ./test/api/... -run TestPayOrder_TC_PA_ORD_015 -json"
+      request: "POST /v1/payments body={order_id:O-CANCELLED-1001}"
+      response: "409 {code:ORDER_NOT_PAYABLE}"
+      trace_id: trace-1003
+      logs: "artifacts/logs/TC-PA-ORD-015.log"
+    cleanup:
+      status: passed
+      details: "无写入"
+
+findings:
+  - id: FINDING-001
+    case_id: TC-PA-ORD-004
+    classification: product_bug
+    severity: critical
+    summary: "quantity=0 返回 500，而不是契约要求的 400 INVALID_QUANTITY"
+    evidence: "artifacts/logs/TC-PA-ORD-004.log"
+
+artifacts:
+  result: "reports/TASK-EXEC-GO-ORDER-001/execution-result.yaml"
+  report: "reports/TASK-EXEC-GO-ORDER-001/execution-report.md"
+  raw_go_test_json: "reports/TASK-EXEC-GO-ORDER-001/artifacts/go-test.json"
+  junit: "reports/TASK-EXEC-GO-ORDER-001/artifacts/junit.xml"
+  coverage: "reports/TASK-EXEC-GO-ORDER-001/artifacts/coverage.out"
+  logs_dir: "reports/TASK-EXEC-GO-ORDER-001/artifacts/logs"
+
+blocked_reasons:
+  - case_id: TC-PA-ORD-009
+    reason: "库存服务不可用"
+    needed: "可用的 inventory-mock 或测试库存"
+
+scope_note: "仅覆盖 4 个指定 case，不能外推到订单接口的整体质量或其他未执行用例。"

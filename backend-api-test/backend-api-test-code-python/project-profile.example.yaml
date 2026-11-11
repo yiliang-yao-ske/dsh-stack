@@ -1,0 +1,60 @@
+# Python 项目约束模板
+# 由编排器填充后作为输入包的一部分传入；不要写真实密钥。
+
+language: python
+python_version: "3.12"
+package_manager: "uv"          # uv | poetry | pip | pdm
+module: "acme.order"
+test_framework: "pytest"
+test_layout: "tests/api"
+test_file_prefix: "test_"
+
+# 测试栈与 fixture：优先填项目已有实现
+assertion: "pytest"
+http_client: "httpx"
+auth_fixture: "auth.buyer_token"
+fixture_root: "tests/api/conftest.py"
+fixture_helpers:
+  - "tests/api/fixtures/order.py"
+mock: "respx"                  # respx | responses | unittest.mock | none
+
+# 真实依赖策略
+db: "testcontainers"           # testcontainers | docker-compose | shared-test-db | none
+cache: "none"                  # none | redis-testcontainer | shared-test-redis
+message_queue: "none"          # none | kafka-testcontainer | rabbitmq-testcontainer
+
+# 构建与命令
+markers: ["integration"]
+compile_command: "python -m compileall tests"
+collect_command: "pytest --collect-only -q"
+test_command: "pytest tests/api -m integration -q"
+lint_command: "ruff check tests"
+type_command: "mypy tests"
+
+# 环境变量名：只写变量名，不写值
+environment:
+  base_url: "TEST_BASE_URL"
+  token: "TEST_TOKEN"
+  tenant: "TEST_TENANT"
+  db_dsn: "TEST_DB_DSN"
+
+# 允许修改范围
+constraints:
+  test_only: true
+  allow_new_dependencies: false
+  max_files: 10
+
+# 项目偏好
+preferences:
+  parametrize: true
+  use_fixtures: true
+  parallel: true
+  cleanup_with_yield: true
+  error_message_include_case_id: true
+  prefer_black_box: true
+
+# 备注
+notes: |
+  - 项目使用 uv 管理依赖，不直接改 requirements.txt。
+  - 集成测试统一使用 integration marker。
+  - 测试数据统一带 RUN_ID 后缀。

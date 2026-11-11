@@ -1,0 +1,62 @@
+schema_version: "1.0"
+task_id: TASK-EXEC-PY-ORDER-001
+stack: python
+
+scope:
+  suite: order-api
+  case_ids:
+    - TC-CT-ORD-001
+    - TC-PA-ORD-004
+    - TC-PA-ORD-009
+  priorities: [P0, P1]
+  exclude_case_ids: []
+  max_cases: 20
+
+artifacts:
+  case_package:
+    path: "/abs/path/case-package.yaml"
+    format: yaml
+  code:
+    path: "/abs/path/tests/api"
+    mapping: "/abs/path/tests/api/case_mapping.md"
+    summary: "/abs/path/tests/api/summary.yaml"
+  report_dir: "/abs/path/reports/TASK-EXEC-PY-ORDER-001"
+
+environment:
+  name: test
+  base_url: "https://test-api.example.com"
+  auth:
+    type: bearer
+    token_env: TEST_TOKEN
+  accounts:
+    - role: buyer
+      token_env: TEST_BUYER_TOKEN
+    - role: other_buyer
+      token_env: TEST_OTHER_BUYER_TOKEN
+  env_vars:
+    TEST_BASE_URL: "https://test-api.example.com"
+    TEST_DB_DSN: "postgresql://test:test@localhost:5432/order_test"
+  services:
+    db: postgres
+    redis: "localhost:6379"
+    mocks:
+      - payment-mock
+      - inventory-mock
+
+run:
+  command: ".venv/bin/python -m pytest tests/api -m integration -q --junitxml=artifacts/pytest.xml"
+  python: ".venv/bin/python"
+  working_dir: "/abs/path"
+  timeout: "10m"
+  retries:
+    max: 1
+    retry_on: [env_issue, flaky]
+  fail_fast: false
+
+constraints:
+  allowed_actions: sandbox-write
+  production: false
+  cleanup: true
+  no_code_changes: true
+  no_case_changes: true
+  authorization: "SEC-2026-011（仅安全用例需要）"

@@ -1,0 +1,59 @@
+# Go 项目约束模板
+# 由编排器填充后作为输入包的一部分传入；不要写真实密钥。
+
+language: go
+go_version: "1.22"
+module: "github.com/acme/order"
+test_package: "api_test"
+test_layout: "test/api"
+test_file_suffix: "_test.go"
+
+# 测试栈与 helper：优先填项目已有实现
+assertion: "testify/require"
+http_client: "internal/testkit/client"
+auth_helper: "testkit.LoginAs"
+fixture_helper: "testkit.CreateOrderFixture"
+cleanup_helper: "testkit.CleanupOrder"
+db_helper: "testkit.QueryRow"
+mock_server: "httptest"
+
+# 真实依赖策略
+db: "testcontainers"          # testcontainers | docker-compose | shared-test-db | none
+cache: "none"                 # none | redis-testcontainer | shared-test-redis
+message_queue: "none"         # none | kafka-testcontainer | rabbitmq-testcontainer
+
+# 构建与命令
+build_tags: ["integration"]
+format_command: "gofmt -w ."
+vet_command: "go vet ./..."
+compile_command: "go test ./... -tags=integration -run '^$'"
+test_command: "go test ./... -tags=integration -race -count=1"
+lint_command: "golangci-lint run ./..."
+
+# 环境变量名：只写变量名，不写值
+environment:
+  base_url: "TEST_BASE_URL"
+  token: "TEST_TOKEN"
+  tenant: "TEST_TENANT"
+  db_dsn: "TEST_DB_DSN"
+
+# 允许修改范围
+constraints:
+  test_only: true
+  allow_new_dependencies: false
+  max_files: 10
+
+# 项目偏好
+preferences:
+  table_driven: true
+  use_subtests: true
+  parallel: true
+  cleanup_with_t_cleanup: true
+  error_message_include_case_id: true
+  prefer_black_box: true
+
+# 备注
+notes: |
+  - 项目已有 testkit 包，优先复用。
+  - 集成测试统一使用 integration tag。
+  - 测试数据统一带 RUN_ID 后缀。

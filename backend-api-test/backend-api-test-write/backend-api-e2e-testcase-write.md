@@ -1,12 +1,12 @@
 # 后端 API 端到端核心链路测试用例编写 Prompt
 
 > **Prompt ID**：`backend-api-e2e-testcase-write`
-> **版本**：1.0
+> **版本**：1.1
 > **类型**：默认必做（3 类之一）
 > **单次范围**：1 条核心业务链路，3–8 步
 > **输出**：1 个 Markdown 用例文件
 > **上游**：总体调度 Prompt 派发
-> **下游**：用例评审 / E2E 自动化（pytest、REST Assured、Karate、Playwright APIRequest 等）
+> **下游**：用例评审 / 后续自动化实现
 
 ---
 
@@ -43,18 +43,15 @@
 - [ ] 这条链路在业务方确认的“核心链路清单”中（不是自己认定的核心）
 - [ ] 已拿到链路的业务目标/成功标准（例如“用户完成支付，订单变为 PAID”）
 - [ ] 已拿到链路涉及的接口清单（3–8 步）
-- [ ] 已拿到测试账号、角色、租户
-- [ ] 已拿到数据准备/清理方式
-- [ ] 已拿到外部依赖的沙箱/Mock（支付、短信、物流等）
-- [ ] 已明确异步/最终一致性的等待方式与超时
-- [ ] 已明确可观测性手段（trace id / correlation id / 日志 / DB 查询）
+- [ ] 已拿到静态代码库路径与 commit（用于核对调用关系与状态流转）
+- [ ] 已拿到链路各步的状态模型与最终业务结果
 - [ ] 已明确输出路径
 
 **缺失处理：**
 
 - 链路不在核心清单：先提 1–3 条候选，请业务方确认；不要自称“核心”。
-- 没有测试账号/沙箱：设计用例，但执行前置标 `BLOCKED`。
 - 没有成功标准：停止，要求业务方给出“什么算完成”。
+- 状态模型缺失：涉及状态的 checkpoint 标 `TBD`，整体 `PARTIAL`。
 - 链路超过 8 步：拆成子链路，但保持一个业务结果；不要在一个文件里塞 20 步。
 
 ---
@@ -68,12 +65,8 @@
 | `core_flow_ref` | 是 | 核心链路清单中的 ID/链接 |
 | `steps` | 是 | 涉及的接口、顺序、依赖 |
 | `services` | 是 | 涉及的服务/下游 |
-| `test_accounts` | 是 | 买家/卖家/管理员，含 token 环境变量 |
-| `data_setup` | 是 | 如何准备商品、库存、优惠券、余额 |
-| `data_cleanup` | 是 | 如何清理/回滚 |
-| `external_sandbox` | 条件 | 支付、短信、物流等沙箱 |
-| `async_behavior` | 条件 | 异步事件/最终一致性/轮询方式 |
-| `observability` | 是 | trace id、日志、DB 查询、消息队列 |
+| `codebase` | 是 | 静态代码库路径 + commit |
+| `business_roles` | 是 | 链路涉及的角色（买家/卖家/管理员） |
 | `output_path` | 是 | 用例文件输出路径 |
 | `max_steps` | 否 | 默认 8 |
 
@@ -99,23 +92,23 @@ flowchart LR
 
 | 步骤 | 接口 | 目的 | 关键请求 | 期望响应 | 状态 checkpoint |
 |---|---|---|---|---|---|
-| 1 | `POST /v1/auth/login` | 获取 token | 测试账号 | 200 + `access_token` | 登录态有效 |
+| 1 | `POST /v1/auth/login` | 获取凭证 | 买家角色 | 200 + `access_token` | 登录态有效 |
 | 2 | `POST /v1/cart/items` | 加购 | `sku_id`, `quantity` | 200 | 购物车有 1 件 |
 | 3 | `POST /v1/orders` | 创建订单 | 购物车/商品 | 201 + `order_id` | 订单 `CREATED`，库存预占/扣减 |
 | 4 | `POST /v1/payments` | 发起支付 | `order_id`, 金额 | 200/202 | 支付单 `PENDING` |
-| 5 | `POST /v1/payments/callback` | 支付回调（沙箱） | 支付流水 | 200 | 支付单 `PAID` |
+| 5 | `POST /v1/payments/callback` | 支付回调 | 支付流水 | 200 | 支付单 `PAID` |
 | 6 | `GET /v1/orders/{id}` | 查询订单 | `order_id` | 200 | 订单 `PAID` |
 | 7 | `GET /v1/inventory/{sku}` | 查库存 | `sku_id` | 200 | 库存扣减 1 |
 
 ### 3.3 状态与数据
 
-| 对象 | 初始状态 | 中间状态 | 最终状态 | 断言方式 |
+| 对象 | 初始状态 | 中间状态 | 最终状态 | 观察点 |
 |---|---|---|---|---|
-| 订单 | 不存在 | `CREATED` / `PENDING_PAYMENT` | `PAID` | 订单查询接口 + DB |
-| 支付单 | 不存在 | `PENDING` | `PAID` | 支付查询接口 + DB |
-| 库存 | 可售 10 | 预占/扣减 | 可售 9 | 库存接口 + DB |
-| 优惠券 | 未使用 | 锁定 | 已使用 | 券接口 + DB |
-| 消息 | — | — | `order.paid` | 消息队列/日志 |
+| 订单 | 不存在 | `CREATED` / `PENDING_PAYMENT` | `PAID` | 订单查询接口返回状态 |
+| 支付单 | 不存在 | `PENDING` | `PAID` | 支付查询接口返回状态 |
+| 库存 | 可售 10 | 预占/扣减 | 可售 9 | 库存查询接口 |
+| 优惠券 | 未使用 | 锁定 | 已使用 | 优惠券查询接口 |
+| 消息 | — | — | `order.paid` | `order.paid` 事件存在 |
 
 ---
 
@@ -133,7 +126,7 @@ flowchart LR
 
 | ID | 场景 | 触发条件 |
 |---|---|---|
-| E2E-04 | 登录态过期/ token 失效 | 链路跨越较长会话，或核心链路包含重新登录 |
+| E2E-04 | 登录态过期/凭据失效 | 链路跨越较长会话，或核心链路包含重新登录 |
 | E2E-05 | 补偿/回滚 | 链路有明确补偿机制（取消订单退库存、退款退券） |
 | E2E-06 | 异步最终一致 | 订单/支付/库存通过事件异步更新 |
 | E2E-07 | 重复回调/重复通知 | 支付回调可能重试；深度幂等归幂等测试 |
@@ -153,11 +146,11 @@ flowchart LR
 1. **一条链路一个用例族**：主链路 1 条，失败分支各 1 条；不要把所有分支塞进一条用例。
 2. **每步都有 checkpoint**：不仅看响应，还要看状态/数据；否则失败无法定位。
 3. **最终断言是业务结果**：订单状态、支付金额、库存数量、券状态、消息事件。
-4. **数据每次唯一**：用 `${RUN_ID}` 后缀；不要复用上一次运行的订单/用户。
-5. **异步要轮询**：不要只 `sleep`；用带超时的轮询/重试，断言最终状态。
-6. **失败可定位**：记录每步的 request/response、trace id、关键 DB 查询结果。
-7. **清理要幂等**：即使中途失败，也能清理/回滚；不能清理的标“一次性环境”。
-8. **用例可重跑**：重复执行不应因唯一键冲突/残留数据失败。
+4. **数据每次唯一**：用例数据带唯一标识；不要复用其他用例的订单/用户。
+5. **异步只写最终态**：声明最终应达到的状态与可接受的中间态，不写轮询、sleep 或超时实现。
+6. **失败可定位**：每步的 checkpoint 要能独立判定，失败时能指出是哪一步的状态不符。
+7. **用例自包含**：不依赖其他用例产生的数据，也不依赖残留状态。
+8. **可重复**：同一用例在相同前置状态下应得到相同结论。
 9. **最多 8 步**；超过拆子链路。
 10. **只做核心**：非核心链路的用例，明确写“不在本次范围”。
 
@@ -172,25 +165,18 @@ flowchart LR
 
 不要选“参数校验失败”这种单接口分支；那是参数测试。
 
-### 5.2 异步/最终一致性
+### 5.2 最终状态与一致性
 
-- 明确等待的对象和条件：订单状态、支付状态、库存、消息。
-- 超时时间要写清（例如 30s），超时后断言什么（失败并保留现场）。
-- 优先用业务查询接口轮询；没有接口时用 DB/消息队列。
-- 不要用固定 `sleep(5)` 作为唯一等待手段；固定等待只能作为兜底。
+- 每条用例必须声明**最终业务状态**（订单、支付、库存、券、消息）。
+- 异步更新的对象，只声明“最终应达到的状态”和“可接受的中间状态”；等待策略由后续自动化实现决定。
+- 最终一致性语义未定义时，把断言标 `TBD`，不要假设“最终会一致”。
 
-### 5.3 测试数据
+### 5.3 测试数据设计
 
-| 数据 | 准备方式 | 清理方式 |
-|---|---|---|
-| 用户 | 工厂 `create_user(role=buyer)` | 软删除/环境重置 |
-| 商品/库存 | 夹具 `fixtures/skus.yaml`，库存 10 | 恢复库存 |
-| 优惠券 | 工厂 `create_coupon(owner=user)` | 作废/环境重置 |
-| 支付沙箱 | 沙箱账号/测试卡 | 关闭支付单/退款 |
-
-- 不写真实 PII/卡号。
-- 金额、库存、券状态在用例执行前后都要记录，便于对账。
-- 外部依赖不可用时，用例标 `BLOCKED`，不要用“假设成功”替代。
+- 用逻辑标识表示数据：`SKU-001`、`COUPON-{n}`、`USER-A`；不出现地址、账号或凭据。
+- 每条用例列出：初始值 → 期望终值；金额、库存、券状态都要能对账。
+- 数据每次唯一（由运行方生成），用例只声明唯一性约束。
+- 不写真实 PII/卡号；外部依赖的期望结果（成功/失败/超时）写在用例里，不写如何模拟。
 
 ---
 
@@ -209,7 +195,7 @@ flowchart LR
 | 核心链路 ID | `CL-ORDER-PAY` |
 | 业务结果 | 订单 `PAID`，库存扣减 1，券核销 |
 | 涉及服务 | order / payment / inventory / coupon / message |
-| 环境 | `test` + 支付沙箱 |
+| 代码库 | `repos/order-service @ abc123` |
 | 用例数 | 3（P0: 2 / P1: 1） |
 | 生成时间 | `2026-11-11` |
 ```
@@ -223,7 +209,7 @@ flowchart LR
 | ID | 优先级 | 场景 | 关键分支 | 最终断言 |
 |---|---|---|---|---|
 | `TC-E2E-ORDER_PAY-001` | P0 | 主链路成功 | 全部成功 | 订单 PAID、库存 -1、券已用 |
-| `TC-E2E-ORDER_PAY-002` | P0 | 支付失败 | 支付沙箱返回失败 | 订单 `PAY_FAILED`/`CANCELLED`，库存释放 |
+| `TC-E2E-ORDER_PAY-002` | P0 | 支付失败 | 支付返回失败 | 订单 `PAY_FAILED`/`CANCELLED`，库存释放 |
 | `TC-E2E-ORDER_PAY-003` | P1 | 库存不足 | 下单时库存 0 | 409，无订单，无支付单 |
 
 ### 6.4 用例详情（YAML）
@@ -237,24 +223,23 @@ flowchart LR
     - "核心链路 CL-ORDER-PAY"
     - "BR-005: 下单成功后扣减库存、生成待支付订单"
   preconditions:
-    auth: "无（先登录获取 token）"
+    auth: "无（链路首步为登录）"
     data:
       - "SKU-001 库存 10，价格 100.00"
-      - "COUPON-${RUN_ID} 已发放给买家，满 100 减 10"
-      - "支付沙箱账号可用"
+      - "COUPON-<唯一编号> 已发放给买家，满 100 减 10"
   steps:
     - step: 1
       api: "POST /v1/auth/login"
       request:
-        body: {username: "${BUYER_USER}", password: "${BUYER_PASS}"}
+        body: {username: "<买家账号>", password: "<登录凭据>"}
       expected:
         status: 200
         assertions: ["body.access_token 非空"]
-      checkpoint: "拿到 access_token，记为 ${ACCESS_TOKEN}"
+      checkpoint: "拿到 access_token，供后续步骤使用"
     - step: 2
       api: "POST /v1/cart/items"
       request:
-        headers: {Authorization: "Bearer ${ACCESS_TOKEN}"}
+        headers: {Authorization: "Bearer <上一步返回的 access_token>"}
         body: {sku_id: "SKU-001", quantity: 1}
       expected:
         status: 200
@@ -263,10 +248,10 @@ flowchart LR
     - step: 3
       api: "POST /v1/orders"
       request:
-        headers: {Authorization: "Bearer ${ACCESS_TOKEN}"}
+        headers: {Authorization: "Bearer <access_token>"}
         body:
           items: [{sku_id: "SKU-001", quantity: 1}]
-          coupon_id: "COUPON-${RUN_ID}"
+          coupon_id: "COUPON-<唯一编号>"
       expected:
         status: 201
         assertions:
@@ -276,8 +261,8 @@ flowchart LR
     - step: 4
       api: "POST /v1/payments"
       request:
-        headers: {Authorization: "Bearer ${ACCESS_TOKEN}"}
-        body: {order_id: "${ORDER_ID}", amount: 90.00, channel: "sandbox"}
+        headers: {Authorization: "Bearer <access_token>"}
+        body: {order_id: "<订单号>", amount: 90.00, channel: "test"}
       expected:
         status: 200
         assertions: ["body.payment_id 非空", "body.status == PENDING"]
@@ -285,15 +270,15 @@ flowchart LR
     - step: 5
       api: "POST /v1/payments/callback"
       request:
-        body: {payment_id: "${PAYMENT_ID}", result: "SUCCESS", signature: "${SANDBOX_SIGN}"}
+        body: {payment_id: "<支付单号>", result: "SUCCESS", signature: "<支付渠道签名>"}
       expected:
         status: 200
         assertions: ["回调被接受"]
       checkpoint: "支付单 PAID"
     - step: 6
-      api: "GET /v1/orders/${ORDER_ID}"
+      api: "GET /v1/orders/<订单号>"
       request:
-        headers: {Authorization: "Bearer ${ACCESS_TOKEN}"}
+        headers: {Authorization: "Bearer <access_token>"}
       expected:
         status: 200
         assertions: ["body.status == PAID", "body.paid_at 非空"]
@@ -303,24 +288,19 @@ flowchart LR
     - "支付单状态 == PAID，金额 == 90.00"
     - "库存 SKU-001 == 9"
     - "优惠券状态 == USED"
-    - "存在 order.paid 事件（消息队列/日志）"
-  cleanup:
-    - "如环境支持：取消订单/退款/恢复库存"
-    - "删除测试用户/券（或环境重置）"
+    - "存在 order.paid 事件"
   risks:
-    - "支付回调为异步，需轮询订单状态，超时 30s"
-  observability:
-    trace_id: "从响应头 X-Request-Id 获取"
+    - "支付回调为异步，最终状态可能延迟更新；用例只断言最终状态"
 ```
 
-### 6.5 测试数据与清理
+### 6.5 状态变化
 
-| 数据 | 初始值 | 期望终值 | 清理 |
-|---|---|---|---|
-| `SKU-001` 库存 | 10 | 9 | 恢复为 10 |
-| 订单 | 不存在 | `PAID` | 取消/归档 |
-| 支付单 | 不存在 | `PAID` | 退款/关闭 |
-| 优惠券 | `UNUSED` | `USED` | 作废 |
+| 数据 | 初始值 | 期望终值 |
+|---|---|---|
+| `SKU-001` 库存 | 10 | 9 |
+| 订单 | 不存在 | `PAID` |
+| 支付单 | 不存在 | `PAID` |
+| 优惠券 | `UNUSED` | `USED` |
 
 ### 6.6 覆盖矩阵
 
@@ -338,7 +318,7 @@ flowchart LR
 
 | ID | 问题 | 影响 | 建议 |
 |---|---|---|---|
-| RISK-01 | 支付回调异步，状态更新延迟未知 | 主链路断言可能不稳定 | 确认最大延迟，设置 30s 轮询 |
+| RISK-01 | 支付回调异步，状态更新时点未定义 | 最终状态断言可能无法收敛 | 在契约中确认最终一致性语义 |
 | GAP-01 | 支付失败后库存释放是同步还是异步 | 失败分支断言不明确 | 找订单/库存服务确认 |
 | GAP-02 | 优惠券锁定后支付失败是否自动退回 | 补偿链路无法断言 | 找优惠券服务确认 |
 
@@ -352,9 +332,8 @@ flowchart LR
 - [ ] 最多 2 个失败分支，且是业务关键分支
 - [ ] 每步都有 checkpoint，不只断言 HTTP 200
 - [ ] 最终断言覆盖订单/支付/库存/券/消息中的关键状态
-- [ ] 异步场景有轮询和超时，不是只 sleep
-- [ ] 测试数据每次唯一、可清理、可重跑
-- [ ] 失败时能拿到 trace id/关键现场
+- [ ] 异步场景只声明最终状态与可接受中间态，不写等待实现
+- [ ] 用例数据自包含、带唯一性约束、互不依赖
 - [ ] 没有把参数矩阵、UI、性能、安全塞进 E2E
 - [ ] 缺口和风险单独记录，没有假设成功
 - [ ] 用例 ID 格式为 `TC-E2E-<FLOW>-<NNN>`
@@ -367,11 +346,9 @@ flowchart LR
 |---|---|
 | 链路不在核心清单 | `BLOCKED`：先确认核心链路 |
 | 没有业务成功标准 | `BLOCKED`：无法定义最终断言 |
-| 没有测试账号/外部沙箱 | `BLOCKED`：无法执行 |
 | 链路超过 8 步 | `PARTIAL`：拆子链路，先交付主链路 |
-| 异步机制未知 | `PARTIAL`：主链路可设计，异步断言标 `TBD` |
-| 环境数据不能清理 | 标“一次性环境”，并在风险中说明 |
-| 涉及真实资金/生产环境 | `BLOCKED`：必须用沙箱 |
+| 最终一致性语义未定义 | `PARTIAL`：主链路可设计，异步断言标 `TBD` |
+| 状态模型缺失 | `PARTIAL`：相关 checkpoint 标 `TBD` |
 
 ---
 
@@ -394,7 +371,7 @@ coverage:
 gaps:
   - "GAP-01: 支付失败后库存释放是否异步未确认"
 risks:
-  - "RISK-01: 支付回调延迟未知，需 30s 轮询"
+  - "RISK-01: 支付回调延迟未知，最终状态断言需按契约确认"
 assumptions: []
 blocked_reasons: []
 ```

@@ -1,12 +1,12 @@
 # 后端 API 契约测试用例编写 Prompt
 
 > **Prompt ID**：`backend-api-contract-testcase-write`
-> **版本**：1.0
+> **版本**：1.1
 > **类型**：默认必做（3 类之一）
 > **单次范围**：1 个 operation（method + path）
 > **输出**：1 个 Markdown 用例文件
 > **上游**：总体调度 Prompt 派发
-> **下游**：用例评审 / 契约校验自动化（Schemathesis、Dredd、Pact 等）
+> **下游**：用例评审 / 后续自动化实现
 
 ---
 
@@ -29,7 +29,7 @@
 
 - 业务金额算得对不对、库存扣得对不对
 - 状态机是否合理、业务规则是否覆盖
-- 数据库/下游副作用
+- 数据/下游副作用
 - 跨接口的端到端结果
 - 性能、安全渗透
 
@@ -40,10 +40,9 @@
 ## 1. 启动检查
 
 - [ ] 已拿到 OpenAPI/Swagger 文档，或等价的契约片段（含版本/commit）
+- [ ] 已拿到静态代码库路径与 commit（用于核对契约与实现）
 - [ ] 已明确本次只做 1 个 operation（method + path）
 - [ ] 能找到该 operation 在文档中的位置（JSON Pointer / 行号 / 章节）
-- [ ] 已拿到测试环境 base URL
-- [ ] 已拿到认证方式与测试 token（至少能触发 401/403，如果契约定义了）
 - [ ] 已明确输出路径
 - [ ] 已明确是否允许“从实现反推契约”（默认不允许）
 
@@ -51,6 +50,7 @@
 
 - 没有契约：停止，返回 `BLOCKED`，要求提供 OpenAPI/Swagger 或契约片段。
 - 契约版本不明：停止，要求确认版本/commit；不同版本的字段可能不同。
+- 缺少静态代码库：只按文档设计，涉及实现行为的断言标 `TBD`，整体 `PARTIAL`。
 - 输入包含多个 operation：只做第一个（按文档顺序），其余写入 `NOT_IN_SCOPE`，不要全部展开。
 - 只有代码没有文档，且用户明确允许“实现反推”：在文件头标注 `CONTRACT_SOURCE: implementation-derived`，并把每个字段的依据写成代码位置；默认不这样做。
 
@@ -64,8 +64,7 @@
 | `operation_id` | 否 | 文档中的 operationId |
 | `contract` | 是 | OpenAPI 文件路径，或内联契约片段 |
 | `contract_version` | 是 | 版本号 / commit / 发布日期 |
-| `base_url` | 是 | 测试环境地址 |
-| `auth` | 否 | 认证方式；契约定义 401/403 时必填 |
+| `codebase` | 是 | 静态代码库路径 + commit |
 | `consumer_expectations` | 否 | Pact/消费方约定；有则增加消费方契约用例 |
 | `versioning_policy` | 否 | 兼容策略：新增可选字段是否允许、破坏性变更定义 |
 | `output_path` | 是 | 用例文件输出路径 |
@@ -162,7 +161,7 @@
 |---|---|
 | 字段名、类型、必填、可空、枚举、格式 | 业务金额/库存/积分算得对不对（参数测试） |
 | 请求/响应 media type | 状态机是否合理（参数测试） |
-| 文档声明的状态码 | 数据库/下游副作用（参数测试/幂等） |
+| 文档声明的状态码 | 数据/下游副作用（参数测试/幂等） |
 | 错误体结构 | 跨接口业务闭环（E2E） |
 | 响应头 | 越权、注入、敏感数据（安全测试） |
 | 版本/向后兼容 | 吞吐、延迟（性能测试） |
@@ -214,7 +213,7 @@
 4. **请求 schema 违规只测契约明确会拒绝的**；契约没写拒绝行为，就进“契约缺口”。
 5. **响应断言以 schema 为准**；不要用业务值做断言。
 6. **一条用例只改一个主变量**；不要同时缺字段 + 错类型 + 越界。
-7. **用例可独立执行**；不依赖前一条用例创建的数据。
+7. **用例自包含**；不依赖前一条用例创建的数据。
 8. **默认 8–15 条，最多 20 条**；超过就拆成“请求契约 / 响应契约 / 错误契约”三个任务。
 
 ### 6.2 期望怎么写
@@ -268,10 +267,10 @@
 
 ### 6.4 测试数据
 
-- 使用占位符：`${BASE_URL}`、`${TOKEN}`、`${RESOURCE_ID}`，不要把真实 token 写进文件。
-- 需要唯一值时，用 `${RUN_ID}` 后缀，保证可重复执行。
-- 需要已存在资源时，在前置条件里写清“由夹具创建”，不要依赖手工数据。
-- 需要清理时，写清清理接口/ SQL；如果环境不支持清理，标注“一次性环境”。
+- 用逻辑标识表示数据：`SKU-001`、`ORDER-{n}`、`USER-A`；用例里不出现地址、账号或凭据。
+- 需要唯一值时，在前置条件里声明唯一性约束（格式、长度、是否可复用），不绑定运行期变量名。
+- 需要已存在资源时，在前置条件里写清业务状态（例如“SKU-001 存在且可售”），不写“由夹具创建”。
+- 不写真实 token、密码、PII。
 
 ---
 
@@ -290,8 +289,7 @@
 | Operation ID | `createOrder` |
 | 契约版本 | `2026-11-01 / commit abc123` |
 | 契约来源 | `specs/openapi.yaml` |
-| Base URL | `${BASE_URL}` |
-| 认证 | `Bearer ${TOKEN}` |
+| 代码库 | `repos/order-service @ abc123` |
 | 用例数 | 12（P0: 5 / P1: 5 / P2: 2） |
 | 生成时间 | `2026-11-11` |
 | 契约来源类型 | `document` / `implementation-derived` |
@@ -320,14 +318,13 @@
     - "openapi.yaml#/paths/~1v1~1orders/post/requestBody"
     - "openapi.yaml#/components/schemas/OrderResponse"
   preconditions:
-    auth: "Bearer ${TOKEN}"
+    auth: "需要认证（bearerAuth），不限角色"
     data: "SKU-001 存在且可售；购物车为空"
   request:
     method: POST
     path: /v1/orders
     headers:
       Content-Type: application/json
-      Authorization: "Bearer ${TOKEN}"
     body:
       items:
         - sku_id: "SKU-001"
@@ -344,8 +341,6 @@
       - "body.items 为数组且 minItems >= 1"
       - "响应头 Location 存在且匹配 /v1/orders/{id}"
     side_effects: []          # 契约测试不断言业务副作用
-  cleanup:
-    - "如需清理：DELETE /v1/orders/{id}（环境支持时）"
   notes: "只验证形状，不验证金额/库存。"
 ```
 
@@ -389,8 +384,8 @@
 - [ ] 请求 schema 违规用例只覆盖契约明确会拒绝的情况
 - [ ] 契约未定义的行为进入“缺口表”，没有编造状态码
 - [ ] 用例 ID 唯一，格式为 `TC-CT-<RES>-<NNN>`
-- [ ] 用例可独立执行，数据可清理
-- [ ] 没有把真实 token、密码、PII 写进文件
+- [ ] 用例自包含：前置状态明确，不依赖其他用例
+- [ ] 文件里没有地址、账号、凭据或真实 PII
 - [ ] 用例数在 8–20 条之间；超出已拆分
 
 ---
@@ -430,6 +425,6 @@ coverage:
 gaps:
   - "GAP-01: 409 错误体未定义"
 assumptions:
-  - "ASSUMPTION-01: SKU-001 在测试环境存在"
+  - "ASSUMPTION-01: SKU-001 在业务数据中存在"
 blocked_reasons: []
 ```
